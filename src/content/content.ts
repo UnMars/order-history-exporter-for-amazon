@@ -699,15 +699,20 @@ import { STORAGE_KEY, STOP_FLAG_KEY } from '../constants';
     return result;
   }
 
+  // Reused across decodeHtmlEntities calls to avoid allocating a fresh <textarea>
+  // per address row when parsing many orders.
+  let entityDecoderTextarea: HTMLTextAreaElement | null = null;
+
   /**
    * Lightweight HTML entity decoder for the small subset Amazon uses in addresses
-   * (we run inside a content script, so we can also leverage a textarea trick if
-   * needed, but a simple replacement covers the common cases).
+   * (we run inside a content script, so we can leverage the textarea trick).
    */
   function decodeHtmlEntities(text: string): string {
-    const textarea = document.createElement('textarea');
-    textarea.innerHTML = text;
-    return textarea.value;
+    if (!entityDecoderTextarea) {
+      entityDecoderTextarea = document.createElement('textarea');
+    }
+    entityDecoderTextarea.innerHTML = text;
+    return entityDecoderTextarea.value;
   }
 
   /**

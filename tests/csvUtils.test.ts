@@ -237,9 +237,10 @@ describe('convertOrdersToCSV', () => {
 
     // First item row should carry the recipient
     expect(lines[1]).toContain('Jeremy Ferand');
-    // Second item row should not repeat the recipient (last 4 columns must be empty)
-    const secondRowParts = lines[2]!.split(',');
-    const last4 = secondRowParts.slice(-4);
-    expect(last4).toEqual(['', '', '', '']);
+    // Second item row should not repeat the recipient: the last 4 columns must
+    // be empty, which serializes as four trailing commas at the end of the row.
+    // Assert this directly instead of splitting on ',', which is not CSV-safe
+    // when earlier columns may contain commas inside quoted fields.
+    expect(lines[2]).toMatch(/,{4}$/);
   });
 });
