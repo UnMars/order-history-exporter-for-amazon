@@ -23,6 +23,32 @@ describe('parseOrderStatus', () => {
     expect(parseOrderStatus('Refunded on January 10, 2024')).toBe('Refunded on January 10, 2024');
   });
 
+  it('should extract French "Retour terminé"', () => {
+    const text = 'Commande effectuée le 7 mai 2026\nRetour terminé\nVotre retour a été traité.';
+    expect(parseOrderStatus(text)).toBe('Retour terminé');
+  });
+
+  it('should extract French "Probablement livré le <date>"', () => {
+    const text =
+      'N° de commande 171-5801076-8827565\nProbablement livré le 30 avril\nMr.Kaplan Lot';
+    expect(parseOrderStatus(text)).toBe('Probablement livré le 30 avril');
+  });
+
+  it('should extract English "Return complete"', () => {
+    const text = 'Order #123-4567890-1234567\nReturn complete\nYour refund was issued.';
+    expect(parseOrderStatus(text)).toBe('Return complete');
+  });
+
+  it('should extract English "Return started"', () => {
+    const text = 'Order #123-4567890-1234567\nReturn started\nWe received your return request.';
+    expect(parseOrderStatus(text)).toBe('Return started');
+  });
+
+  it('should extract English "Likely delivered <date>"', () => {
+    const text = 'Order #123-4567890-1234567\nLikely delivered 30 April\nProduct XYZ';
+    expect(parseOrderStatus(text)).toBe('Likely delivered 30 April');
+  });
+
   it('should not match status words in the middle of unrelated text', () => {
     const text = 'This product is not shipped yet but advertisement card';
     expect(parseOrderStatus(text)).toBe('');
