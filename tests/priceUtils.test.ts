@@ -144,6 +144,78 @@ describe('detectCurrency', () => {
   it('should not match kr as a substring inside a word', () => {
     expect(detectCurrency('Skrivbord 199,00')).toBe('EUR');
   });
+
+  describe('domain-aware currency detection', () => {
+    it('should return MXN for $ on amazon.com.mx', () => {
+      expect(detectCurrency('$683.23', 'www.amazon.com.mx')).toBe('MXN');
+    });
+
+    it('should return AUD for $ on amazon.com.au', () => {
+      expect(detectCurrency('$49.99', 'www.amazon.com.au')).toBe('AUD');
+    });
+
+    it('should return CAD for $ on amazon.ca', () => {
+      expect(detectCurrency('$29.99', 'www.amazon.ca')).toBe('CAD');
+    });
+
+    it('should return BRL for $ on amazon.com.br', () => {
+      expect(detectCurrency('$199.99', 'www.amazon.com.br')).toBe('BRL');
+    });
+
+    it('should return USD for $ on amazon.com', () => {
+      expect(detectCurrency('$12.99', 'www.amazon.com')).toBe('USD');
+    });
+
+    it('should return USD for $ when no hostname provided', () => {
+      expect(detectCurrency('$12.99')).toBe('USD');
+    });
+
+    it('should return USD for $ on unknown domain', () => {
+      expect(detectCurrency('$12.99', 'unknown.example.com')).toBe('USD');
+    });
+
+    it('should use domain currency as default when no symbol found', () => {
+      expect(detectCurrency('Total: 12.99', 'www.amazon.com.mx')).toBe('MXN');
+      expect(detectCurrency('Total: 12.99', 'www.amazon.com.au')).toBe('AUD');
+      expect(detectCurrency('Total: 12.99', 'www.amazon.de')).toBe('EUR');
+    });
+
+    it('should still prefer explicit symbols over domain', () => {
+      // € on a $ marketplace should still be EUR
+      expect(detectCurrency('€12.99', 'www.amazon.com')).toBe('EUR');
+      // £ on any domain is GBP
+      expect(detectCurrency('£12.99', 'www.amazon.com.mx')).toBe('GBP');
+    });
+
+    it('should return USD for explicit USD text on non-US domain', () => {
+      // "USD" is an explicit currency code and should not be overridden by domain
+      expect(detectCurrency('Total: USD 12.99', 'www.amazon.com.mx')).toBe('USD');
+      expect(detectCurrency('Total: USD 12.99', 'www.amazon.com.au')).toBe('USD');
+      expect(detectCurrency('Total: USD 12.99', 'www.amazon.ca')).toBe('USD');
+    });
+
+    it('should detect explicit currency symbols and codes from new marketplaces', () => {
+      // R$ / BRL
+      expect(detectCurrency('R$ 19,90')).toBe('BRL');
+      expect(detectCurrency('Total: BRL 199,99')).toBe('BRL');
+      // ¥ / JPY
+      expect(detectCurrency('¥ 1200')).toBe('JPY');
+      expect(detectCurrency('Total: JPY 5000')).toBe('JPY');
+      // ₹ / INR
+      expect(detectCurrency('₹ 499,00')).toBe('INR');
+      expect(detectCurrency('Total: INR 1499')).toBe('INR');
+      // AUD
+      expect(detectCurrency('Total: AUD 49.99')).toBe('AUD');
+      // CAD
+      expect(detectCurrency('Total: CAD 29.99')).toBe('CAD');
+      // MXN
+      expect(detectCurrency('Total: MXN 683.23')).toBe('MXN');
+    });
+
+    it('should prefer R$ over $ when both are present', () => {
+      expect(detectCurrency('R$ 19,90', 'www.amazon.com')).toBe('BRL');
+    });
+  });
 });
 
 describe('extractPriceFromText', () => {
@@ -231,6 +303,28 @@ describe('extractPriceFromText', () => {
     it('should not treat a stray "$," token as a zero price', () => {
       const result = extractPriceFromText('$, $252.71');
       expect(result).toEqual({ amount: 252.71, currency: 'USD' });
+    });
+  });
+
+  describe('domain-aware price extraction', () => {
+    it('should forward hostname and return MXN for $ on amazon.com.mx', () => {
+      const result = extractPriceFromText('Total: $683.23', 'www.amazon.com.mx');
+      expect(result).toEqual({ amount: 683.23, currency: 'MXN' });
+    });
+
+    it('should forward hostname and return AUD for $ on amazon.com.au', () => {
+      const result = extractPriceFromText('Total: $49.99', 'www.amazon.com.au');
+      expect(result).toEqual({ amount: 49.99, currency: 'AUD' });
+    });
+
+    it('should forward hostname and return CAD for $ on amazon.ca', () => {
+      const result = extractPriceFromText('Total: $29.99', 'www.amazon.ca');
+      expect(result).toEqual({ amount: 29.99, currency: 'CAD' });
+    });
+
+    it('should use domain default when no currency symbol present', () => {
+      const result = extractPriceFromText('Total: 683.23', 'www.amazon.com.mx');
+      expect(result).toEqual({ amount: 683.23, currency: 'MXN' });
     });
   });
 });
