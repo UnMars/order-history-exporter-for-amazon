@@ -4,7 +4,7 @@
  */
 
 import browser from 'webextension-polyfill';
-import type { DownloadData, MessagePayload } from '../types';
+import type { DownloadData, DownloadUrlData, MessagePayload } from '../types';
 
 /**
  * Get localized message from browser i18n API
@@ -20,6 +20,19 @@ browser.runtime.onMessage.addListener((message: any, _sender: any) => {
 
   if (msg.action === 'downloadFile') {
     return downloadFile(msg.data as DownloadData)
+      .then(() => ({ success: true }))
+      .catch((error: Error) => ({ success: false, error: error.message }));
+  }
+
+  if (msg.action === 'downloadInvoiceUrl') {
+    return downloadInvoiceUrl(msg.data as DownloadUrlData)
+      .then(() => ({ success: true }))
+      .catch((error: Error) => ({ success: false, error: error.message }));
+  }
+
+  if (msg.action === 'setDownloadsUIEnabled') {
+    const enabled = Boolean((msg.data as { enabled?: boolean } | undefined)?.enabled);
+    return setDownloadsUIEnabled(enabled)
       .then(() => ({ success: true }))
       .catch((error: Error) => ({ success: false, error: error.message }));
   }
@@ -77,6 +90,36 @@ async function downloadFile(data: DownloadData): Promise<number> {
     }
     throw error;
   }
+}
+
+/**
+ * Download an invoice PDF from an Amazon URL, letting the browser reuse
+ * the user's session cookies for authentication. Silent (no Save-As
+ * prompt) since one export can queue dozens of invoices; conflicts are
+ * uniquified so re-runs of the same order don't overwrite prior files.
+ */
+async function downloadInvoiceUrl(data: DownloadUrlData): Promise<number> {
+  return browser.downloads.download({
+    url: data.url,
+    filename: data.fileName,
+    saveAs: false,
+    conflictAction: 'uniquify',
+  });
+}
+
+/**
+ * Toggle Chrome's download shelf/bubble so a bulk invoice export doesn't
+ * spam the UI. Requires the `downloads.ui` permission (Chrome only).
+ * Firefox lacks this API, so we silently no-op. The setting is per-session
+ * and MUST be re-enabled once the export is done, otherwise later manual
+ * downloads by the user would stay invisible.
+ */
+async function setDownloadsUIEnabled(enabled: boolean): Promise<void> {
+  const api = browser.downloads as typeof browser.downloads & {
+    setUiOptions?: (options: { enabled: boolean }) => Promise<void>;
+  };
+  if (typeof api.setUiOptions !== 'function') return;
+  await api.setUiOptions({ enabled });
 }
 
 // Log when extension is installed or updated
