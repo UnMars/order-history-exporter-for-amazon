@@ -319,11 +319,7 @@ import { STORAGE_KEY, STOP_FLAG_KEY } from '../constants';
     );
 
     // Fetch item prices (and optionally transaction details) for all orders
-    await fetchOrderDetailsForPrices(
-      state.collectedOrders,
-      state.includeTransactions,
-      state.baseUrl
-    );
+    await fetchOrderDetailsForPrices(state.collectedOrders, state.includeTransactions);
 
     // Check if stop was requested during price fetching (state already cleared by handler)
     if (stopRequested || !getExportState()) {
@@ -924,8 +920,7 @@ import { STORAGE_KEY, STOP_FLAG_KEY } from '../constants';
    */
   async function fetchOrderDetailsForPrices(
     orders: Order[],
-    includeTransactions: boolean,
-    _baseUrl: string
+    includeTransactions: boolean
   ): Promise<void> {
     const ordersNeedingDetails = orders.filter((order) => order.detailsUrl);
 
