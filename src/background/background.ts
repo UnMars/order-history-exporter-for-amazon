@@ -5,6 +5,8 @@
 
 import browser from 'webextension-polyfill';
 import type { DownloadData, DownloadUrlData, MessagePayload } from '../types';
+import { DOWNLOADS_UI_OWNER_KEY } from '../constants';
+import { createDownloadsUiGuard } from '../utils/downloadsUiGuard';
 
 /**
  * Get localized message from browser i18n API
@@ -13,9 +15,39 @@ function getMessage(key: string, substitutions?: string | string[]): string {
   return browser.i18n.getMessage(key, substitutions) || key;
 }
 
+const downloadsUiGuard = createDownloadsUiGuard({
+  setUiEnabled: setDownloadsUIEnabled,
+  async getOwnerTabId() {
+    const stored = await browser.storage.session.get(DOWNLOADS_UI_OWNER_KEY);
+    const tabId = stored[DOWNLOADS_UI_OWNER_KEY];
+    return typeof tabId === 'number' ? tabId : undefined;
+  },
+  async setOwnerTabId(tabId) {
+    if (tabId === undefined) {
+      await browser.storage.session.remove(DOWNLOADS_UI_OWNER_KEY);
+    } else {
+      await browser.storage.session.set({ [DOWNLOADS_UI_OWNER_KEY]: tabId });
+    }
+  },
+});
+
+// Restore the download UI if the exporting tab is closed or navigates away
+// mid-export: its content script dies before it can restore the UI itself.
+browser.tabs.onRemoved.addListener((tabId) => {
+  downloadsUiGuard.handleTabGone(tabId).catch((error: unknown) => {
+    console.warn('[Amazon Exporter] Failed to restore downloads UI:', error);
+  });
+});
+browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== 'loading') return;
+  downloadsUiGuard.handleTabGone(tabId).catch((error: unknown) => {
+    console.warn('[Amazon Exporter] Failed to restore downloads UI:', error);
+  });
+});
+
 // Listen for messages from content scripts
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-browser.runtime.onMessage.addListener((message: any, _sender: any) => {
+browser.runtime.onMessage.addListener((message: any, sender: any) => {
   const msg = message as MessagePayload;
 
   if (msg.action === 'downloadFile') {
@@ -32,7 +64,8 @@ browser.runtime.onMessage.addListener((message: any, _sender: any) => {
 
   if (msg.action === 'setDownloadsUIEnabled') {
     const enabled = Boolean((msg.data as { enabled?: boolean } | undefined)?.enabled);
-    return setDownloadsUIEnabled(enabled)
+    const tabId = (sender as browser.Runtime.MessageSender | undefined)?.tab?.id;
+    return (enabled ? downloadsUiGuard.restore() : downloadsUiGuard.suppress(tabId))
       .then(() => ({ success: true }))
       .catch((error: Error) => ({ success: false, error: error.message }));
   }
@@ -110,9 +143,8 @@ async function downloadInvoiceUrl(data: DownloadUrlData): Promise<number> {
 /**
  * Toggle Chrome's download shelf/bubble so a bulk invoice export doesn't
  * spam the UI. Requires the `downloads.ui` permission (Chrome only).
- * Firefox lacks this API, so we silently no-op. The setting is per-session
- * and MUST be re-enabled once the export is done, otherwise later manual
- * downloads by the user would stay invisible.
+ * Firefox lacks this API, so we silently no-op. Only call through
+ * `downloadsUiGuard`, which restores the UI if the exporting tab goes away.
  */
 async function setDownloadsUIEnabled(enabled: boolean): Promise<void> {
   const api = browser.downloads as typeof browser.downloads & {

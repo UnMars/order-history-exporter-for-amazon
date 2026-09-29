@@ -1,9 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildInvoicePopoverUrl,
   isPdfInvoiceHref,
   buildInvoiceFilename,
+  downloadInvoicesForOrder,
 } from '../src/utils/invoiceUtils';
+import type { InvoiceDownloadDeps } from '../src/utils/invoiceUtils';
 
 describe('buildInvoicePopoverUrl', () => {
   it('builds the correct URL for amazon.fr', () => {
@@ -80,5 +82,119 @@ describe('buildInvoiceFilename', () => {
     expect(buildInvoiceFilename('407-0100142-8760371', 1, 2, 'amazon-invoices')).toBe(
       'amazon-invoices/407-0100142-8760371_2.pdf'
     );
+  });
+});
+
+describe('downloadInvoicesForOrder', () => {
+  const origin = 'https://www.amazon.fr';
+  const orderId = '407-0100142-8760371';
+
+  function makeDeps(overrides: Partial<InvoiceDownloadDeps> = {}): InvoiceDownloadDeps {
+    return {
+      fetchPdfHrefs: vi.fn(async () => ['/documents/download/a/invoice.pdf']),
+      isStopRequested: vi.fn(() => false),
+      download: vi.fn(async () => ({ success: true })),
+      warn: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  it('downloads every PDF with absolute URLs and indexed filenames', async () => {
+    const deps = makeDeps({
+      fetchPdfHrefs: vi.fn(async () => [
+        '/documents/download/a/invoice.pdf',
+        '/documents/download/b/invoice.pdf',
+      ]),
+    });
+    const started = await downloadInvoicesForOrder(orderId, origin, 'amazon-invoices', deps);
+    expect(started).toBe(2);
+    expect(deps.fetchPdfHrefs).toHaveBeenCalledWith(buildInvoicePopoverUrl(origin, orderId));
+    expect(deps.download).toHaveBeenNthCalledWith(1, {
+      url: 'https://www.amazon.fr/documents/download/a/invoice.pdf',
+      fileName: `amazon-invoices/${orderId}_1.pdf`,
+    });
+    expect(deps.download).toHaveBeenNthCalledWith(2, {
+      url: 'https://www.amazon.fr/documents/download/b/invoice.pdf',
+      fileName: `amazon-invoices/${orderId}_2.pdf`,
+    });
+  });
+
+  it('does not fetch the popover when stop was already requested', async () => {
+    const deps = makeDeps({ isStopRequested: vi.fn(() => true) });
+    expect(await downloadInvoicesForOrder(orderId, origin, 'amazon-invoices', deps)).toBe(0);
+    expect(deps.fetchPdfHrefs).not.toHaveBeenCalled();
+    expect(deps.download).not.toHaveBeenCalled();
+  });
+
+  it('queues nothing when stop is requested while the popover fetch is pending', async () => {
+    let stopped = false;
+    const deps = makeDeps({
+      fetchPdfHrefs: vi.fn(async () => {
+        stopped = true; // user clicks Stop during the fetch
+        return ['/documents/download/a/invoice.pdf', '/documents/download/b/invoice.pdf'];
+      }),
+      isStopRequested: vi.fn(() => stopped),
+    });
+    expect(await downloadInvoicesForOrder(orderId, origin, 'amazon-invoices', deps)).toBe(0);
+    expect(deps.download).not.toHaveBeenCalled();
+  });
+
+  it('stops dispatching remaining PDFs once stop is requested', async () => {
+    let stopped = false;
+    const deps = makeDeps({
+      fetchPdfHrefs: vi.fn(async () => [
+        '/documents/download/a/invoice.pdf',
+        '/documents/download/b/invoice.pdf',
+      ]),
+      isStopRequested: vi.fn(() => stopped),
+      download: vi.fn(async () => {
+        stopped = true;
+        return { success: true };
+      }),
+    });
+    expect(await downloadInvoicesForOrder(orderId, origin, 'amazon-invoices', deps)).toBe(1);
+    expect(deps.download).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports failed download responses and continues with the next PDF', async () => {
+    const deps = makeDeps({
+      fetchPdfHrefs: vi.fn(async () => [
+        '/documents/download/a/invoice.pdf',
+        '/documents/download/b/invoice.pdf',
+      ]),
+      download: vi
+        .fn()
+        .mockResolvedValueOnce({ success: false, error: 'Download canceled' })
+        .mockResolvedValueOnce({ success: true }),
+    });
+    expect(await downloadInvoicesForOrder(orderId, origin, 'amazon-invoices', deps)).toBe(1);
+    expect(deps.download).toHaveBeenCalledTimes(2);
+    expect(deps.warn).toHaveBeenCalledWith(expect.stringContaining(orderId), 'Download canceled');
+  });
+
+  it('reports a missing background response as a failure', async () => {
+    const deps = makeDeps({ download: vi.fn(async () => undefined) });
+    expect(await downloadInvoicesForOrder(orderId, origin, 'amazon-invoices', deps)).toBe(0);
+    expect(deps.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a rejected message dispatch without throwing', async () => {
+    const deps = makeDeps({ download: vi.fn(async () => Promise.reject(new Error('boom'))) });
+    await expect(downloadInvoicesForOrder(orderId, origin, 'amazon-invoices', deps)).resolves.toBe(
+      0
+    );
+    expect(deps.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns when the popover has no PDF link', async () => {
+    const deps = makeDeps({ fetchPdfHrefs: vi.fn(async () => []) });
+    expect(await downloadInvoicesForOrder(orderId, origin, 'amazon-invoices', deps)).toBe(0);
+    expect(deps.warn).toHaveBeenCalledWith(expect.stringContaining('No PDF invoice link'));
+  });
+
+  it('skips silently when the popover fetch failed', async () => {
+    const deps = makeDeps({ fetchPdfHrefs: vi.fn(async () => null) });
+    expect(await downloadInvoicesForOrder(orderId, origin, 'amazon-invoices', deps)).toBe(0);
+    expect(deps.download).not.toHaveBeenCalled();
   });
 });

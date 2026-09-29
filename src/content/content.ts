@@ -25,10 +25,10 @@ import {
   CURRENCY_TOKEN,
   getCurrencyForDomain,
   parseOrderStatus,
-  buildInvoicePopoverUrl,
   isPdfInvoiceHref,
-  buildInvoiceFilename,
+  downloadInvoicesForOrder,
 } from '../utils';
+import type { DownloadResponse } from '../utils';
 import { STORAGE_KEY, STOP_FLAG_KEY, INVOICE_DOWNLOAD_SUBFOLDER } from '../constants';
 
 (function (): void {
@@ -970,38 +970,25 @@ import { STORAGE_KEY, STOP_FLAG_KEY, INVOICE_DOWNLOAD_SUBFOLDER } from '../const
    * Runs best-effort: a failure on one order doesn't abort the export.
    */
   async function downloadInvoicePdfsForOrder(orderId: string, origin: string): Promise<void> {
-    const popoverUrl = buildInvoicePopoverUrl(origin, orderId);
-    const response = await fetch(popoverUrl, { credentials: 'include' });
-    if (!response.ok) {
-      console.warn(
-        `[Amazon Exporter] Invoice popover fetch failed for ${orderId}: HTTP ${response.status}`
-      );
-      return;
-    }
-    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
-    const hrefs = extractInvoicePdfHrefs(doc);
-    if (hrefs.length === 0) {
-      console.warn(`[Amazon Exporter] No PDF invoice link found in popover for ${orderId}`);
-      return;
-    }
-    for (let i = 0; i < hrefs.length; i++) {
-      const href = hrefs[i];
-      if (!href) continue;
-      const url = new URL(href, origin).toString();
-      const fileName = buildInvoiceFilename(orderId, i, hrefs.length, INVOICE_DOWNLOAD_SUBFOLDER);
-      try {
-        await browser.runtime.sendMessage({
-          action: 'downloadInvoiceUrl',
-          data: { url, fileName },
-        });
-      } catch (msgError) {
-        console.warn(
-          '[Amazon Exporter] Failed to dispatch invoice download for order:',
-          orderId,
-          msgError
-        );
-      }
-    }
+    await downloadInvoicesForOrder(orderId, origin, INVOICE_DOWNLOAD_SUBFOLDER, {
+      async fetchPdfHrefs(popoverUrl) {
+        const response = await fetch(popoverUrl, { credentials: 'include' });
+        if (!response.ok) {
+          console.warn(
+            `[Amazon Exporter] Invoice popover fetch failed for ${orderId}: HTTP ${response.status}`
+          );
+          return null;
+        }
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+        return extractInvoicePdfHrefs(doc);
+      },
+      isStopRequested: () => stopRequested || !getExportState(),
+      download: (data) =>
+        browser.runtime.sendMessage({ action: 'downloadInvoiceUrl', data }) as Promise<
+          DownloadResponse | undefined
+        >,
+      warn: (...args) => console.warn(...args),
+    });
   }
 
   /**
