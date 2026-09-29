@@ -826,48 +826,46 @@ import { STORAGE_KEY, STOP_FLAG_KEY } from '../constants';
 
       item.title = title.replace(/\s+/g, ' ').trim();
 
-      // Get quantity - first look for the visual quantity badge
+      // Get quantity - scoped strictly to the item container row #62
       let foundQuantity = false;
-      let parentEl = link.parentElement;
+      // Anchor to the specific product row container to prevent quantity bleeding
+      const itemRow =
+        link.closest('[data-component="purchasedItems"], .a-fixed-left-grid') || link.parentElement;
 
-      // Look for the quantity badge element (product-image__qty)
-      for (let i = 0; i < 10 && parentEl && !foundQuantity; i++) {
-        const qtyBadge = parentEl.querySelector(
-          '.product-image__qty, [class*="qty-badge"], [class*="quantity-badge"]'
+      // Look for the quantity badge element inside this item's row
+      if (itemRow) {
+        const qtyBadge = itemRow.querySelector(
+          '.od-item-view-qty span, .product-image__qty, [class*="qty-badge"], [class*="quantity-badge"]'
         );
-        if (qtyBadge) {
-          const qtyText = qtyBadge.textContent?.trim();
-          if (qtyText) {
-            const qty = parseInt(qtyText, 10);
-            if (!isNaN(qty) && qty > 0) {
-              item.quantity = qty;
-              foundQuantity = true;
-              break;
-            }
+        if (qtyBadge?.textContent) {
+          const qty = parseInt(qtyBadge.textContent.trim(), 10);
+          if (!isNaN(qty) && qty > 0) {
+            item.quantity = qty;
+            foundQuantity = true;
           }
-        }
-        parentEl = parentEl.parentElement;
-      }
-
-      // Fallback: look for text patterns like "Qty: 2", "Menge: 2"
-      if (!foundQuantity) {
-        parentEl = link.parentElement;
-        for (let i = 0; i < 8 && parentEl; i++) {
-          const qtyMatch = (parentEl.textContent || '').match(
-            /(?:Qty|Quantity|Menge|Anzahl|Antal|Cantidad|Cant\.?)[:\s]*(\d+)/i
-          );
-          if (qtyMatch?.[1]) {
-            item.quantity = parseInt(qtyMatch[1], 10);
-            break;
-          }
-          parentEl = parentEl.parentElement;
         }
       }
 
+      // Fallback: look for text patterns strictly scoped within this item's row
+      // 1. Quantity Section Ends Here
+      if (!foundQuantity && itemRow) {
+        const nonTitleText = itemRow.textContent?.replace(item.title, '') || '';
+        const qtyMatch = nonTitleText.match(
+          /(?:Qty|Quantity|Menge|Anzahl|Antal|Cantidad|Cant\.?)[:\s]*(\d+)/i
+        );
+        if (qtyMatch?.[1]) {
+          const parsedQty = parseInt(qtyMatch[1], 10);
+          if (!isNaN(parsedQty) && parsedQty > 0) {
+            item.quantity = parsedQty;
+          }
+        }
+      } // <--- Closes `if (!foundQuantity && itemRow)`
+
+      // 2. Keep the Push! (This saves the item to the output array)
       if (item.title || item.asin) {
         items.push(item);
       }
-    });
+    }); // <--- Closes `productLinks.forEach((link) => {`
 
     return items;
   }
