@@ -33,7 +33,7 @@ import {
   getCurrencyForDomain,
   parseOrderStatus,
   buildTransactionUrl,
-  parseCPETransactionAmount,
+  buildTransactionsFromCPEEntries,
 } from '../utils';
 import { STORAGE_KEY, STOP_FLAG_KEY } from '../constants';
 
@@ -997,8 +997,11 @@ import { STORAGE_KEY, STOP_FLAG_KEY } from '../constants';
         // isn't a valid URL, skip transactions for this order.
         if (includeTransactions && order.orderId) {
           let transactionOrigin = '';
+          let transactionHost = '';
           try {
-            transactionOrigin = new URL(order.detailsUrl).origin;
+            const detailsUrl = new URL(order.detailsUrl);
+            transactionOrigin = detailsUrl.origin;
+            transactionHost = detailsUrl.hostname;
           } catch {
             console.warn(
               '[Amazon Exporter] Could not derive origin from detailsUrl for order:',
@@ -1016,7 +1019,7 @@ import { STORAGE_KEY, STOP_FLAG_KEY } from '../constants';
                 const txHtml = await txResponse.text();
                 const txParser = new DOMParser();
                 const txDoc = txParser.parseFromString(txHtml, 'text/html');
-                order.transactions = parseTransactionsFromCPEDoc(txDoc);
+                order.transactions = parseTransactionsFromCPEDoc(txDoc, transactionHost);
                 if (order.transactions.length > 0) {
                   console.log(
                     `[Amazon Exporter] ${order.transactions.length} transaction(s) from CPE page for order ${order.orderId}`
@@ -1048,12 +1051,14 @@ import { STORAGE_KEY, STOP_FLAG_KEY } from '../constants';
   /**
    * Walk the CPE (`/cpe/yourpayments/transactions`) DOM and extract per-order
    * transactions. DOM traversal lives here in the content script; sign/amount
-   * parsing is delegated to the pure `parseCPETransactionAmount` utility so it
+   * parsing is delegated to the pure `buildTransactionsFromCPEEntries` utility so it
    * can be unit-tested without jsdom.
    */
-  function parseTransactionsFromCPEDoc(doc: Document): Transaction[] {
-    const transactions: Transaction[] = [];
-    const seen = new Set<string>();
+  function parseTransactionsFromCPEDoc(doc: Document, hostname: string): Transaction[] {
+    const entries: { date: string; amountText: string }[] = [];
+    // Deduplicate by DOM node only (nested groups can match the same element).
+    // Date + amount is not unique: two equal charges on one day are distinct.
+    const seen = new Set<Element>();
 
     const groups = doc.querySelectorAll('.a-box-group');
     for (const group of groups) {
@@ -1073,18 +1078,13 @@ import { STORAGE_KEY, STOP_FLAG_KEY } from '../constants';
         const amountText = amountEl.textContent?.trim() ?? '';
         if (!amountText) continue;
 
-        const parsed = parseCPETransactionAmount(amountText);
-        if (!parsed) continue;
-
-        const key = `${date}:${parsed.amount}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          transactions.push({ date, amount: parsed.amount, currency: parsed.currency });
-        }
+        if (seen.has(amountEl)) continue;
+        seen.add(amountEl);
+        entries.push({ date, amountText });
       }
     }
 
-    return transactions;
+    return buildTransactionsFromCPEEntries(entries, hostname);
   }
 
   /**

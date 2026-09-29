@@ -4,6 +4,7 @@ import {
   formatTransactionDatesForCSV,
   formatTransactionAmountsForCSV,
   parseCPETransactionAmount,
+  buildTransactionsFromCPEEntries,
 } from '../src/utils/transactionUtils';
 import type { Transaction } from '../src/types';
 
@@ -131,5 +132,68 @@ describe('parseCPETransactionAmount', () => {
 
   it('trims whitespace before checking for the minus sign', () => {
     expect(parseCPETransactionAmount('  -$14.93  ')).toEqual({ amount: 14.93, currency: 'USD' });
+  });
+});
+
+describe('parseCPETransactionAmount marketplace currency', () => {
+  it('should resolve $ to USD on amazon.com', () => {
+    expect(parseCPETransactionAmount('-$10.00', 'www.amazon.com')).toEqual({
+      amount: 10,
+      currency: 'USD',
+    });
+  });
+
+  it('should resolve $ to CAD on amazon.ca', () => {
+    expect(parseCPETransactionAmount('-$10.00', 'www.amazon.ca')).toEqual({
+      amount: 10,
+      currency: 'CAD',
+    });
+  });
+
+  it('should resolve $ to AUD on amazon.com.au', () => {
+    expect(parseCPETransactionAmount('-$10.00', 'www.amazon.com.au')).toEqual({
+      amount: 10,
+      currency: 'AUD',
+    });
+  });
+
+  it('should resolve $ to MXN on amazon.com.mx', () => {
+    expect(parseCPETransactionAmount('$25.50', 'www.amazon.com.mx')).toEqual({
+      amount: -25.5,
+      currency: 'MXN',
+    });
+  });
+});
+
+describe('buildTransactionsFromCPEEntries', () => {
+  it('should keep two equal charges on the same day as separate transactions', () => {
+    const transactions = buildTransactionsFromCPEEntries(
+      [
+        { date: '2026-04-17', amountText: '-$10.00' },
+        { date: '2026-04-17', amountText: '-$10.00' },
+      ],
+      'www.amazon.com'
+    );
+    expect(transactions).toEqual([
+      { date: '2026-04-17', amount: 10, currency: 'USD' },
+      { date: '2026-04-17', amount: 10, currency: 'USD' },
+    ]);
+  });
+
+  it('should use the marketplace currency for $ amounts', () => {
+    const transactions = buildTransactionsFromCPEEntries(
+      [{ date: '2026-04-17', amountText: '-$10.00' }],
+      'www.amazon.ca'
+    );
+    expect(transactions[0]?.currency).toBe('CAD');
+  });
+
+  it('should skip unparseable and zero amounts', () => {
+    const transactions = buildTransactionsFromCPEEntries([
+      { date: '2026-04-17', amountText: 'n/a' },
+      { date: '2026-04-17', amountText: '-€0,00' },
+      { date: '2026-04-18', amountText: '-€5,00' },
+    ]);
+    expect(transactions).toEqual([{ date: '2026-04-18', amount: 5, currency: 'EUR' }]);
   });
 });
