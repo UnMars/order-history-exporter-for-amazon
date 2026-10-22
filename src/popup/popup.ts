@@ -45,11 +45,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const startDateInput = document.getElementById('startDate') as HTMLInputElement;
   const endDateInput = document.getElementById('endDate') as HTMLInputElement;
   const settingsSection = document.getElementById('settings-section') as HTMLElement;
+  const includeTransactionsCheckbox = document.getElementById(
+    'includeTransactions'
+  ) as HTMLInputElement;
   const downloadInvoicesCheckbox = document.getElementById('downloadInvoices') as HTMLInputElement;
 
   // Restore persisted checkbox state
-  const stored = await browser.storage.local.get('downloadInvoices');
+  const stored = await browser.storage.local.get(['includeTransactions', 'downloadInvoices']);
+  includeTransactionsCheckbox.checked = stored['includeTransactions'] === true;
   downloadInvoicesCheckbox.checked = stored['downloadInvoices'] === true;
+
+  includeTransactionsCheckbox.addEventListener('change', () => {
+    void browser.storage.local.set({ includeTransactions: includeTransactionsCheckbox.checked });
+  });
 
   downloadInvoicesCheckbox.addEventListener('change', () => {
     void browser.storage.local.set({ downloadInvoices: downloadInvoicesCheckbox.checked });
@@ -133,6 +141,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         startDate: startDate,
         endDate: endDate,
         exportAll: exportRange === 'all',
+        includeTransactions: includeTransactionsCheckbox.checked,
         downloadInvoices: downloadInvoicesCheckbox.checked,
       };
 

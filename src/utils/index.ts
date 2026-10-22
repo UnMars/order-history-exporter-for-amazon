@@ -8,4 +8,5 @@ export * from './orderUtils';
 export * from './statusUtils';
 export * from './csvUtils';
 export * from './urlUtils';
+export * from './transactionUtils';
 export * from './invoiceUtils';

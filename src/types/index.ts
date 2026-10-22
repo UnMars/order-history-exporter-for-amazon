@@ -11,6 +11,12 @@ export interface OrderItem {
   itemUrl: string;
 }
 
+export interface Transaction {
+  date: string;
+  amount: number;
+  currency: string;
+}
+
 export interface Order {
   orderId: string;
   orderDate: string;
@@ -30,6 +36,7 @@ export interface Order {
   chargedAmount: number | null;
   /** Amount covered by a gift card, 0 if none was used. */
   giftCardAmount: number;
+  transactions?: Transaction[];
 }
 
 export interface Promotion {
@@ -42,6 +49,7 @@ export interface ExportOptions {
   startDate: string | null;
   endDate: string | null;
   exportAll: boolean;
+  includeTransactions: boolean;
   downloadInvoices: boolean;
 }
 
@@ -51,6 +59,7 @@ export interface ExportState {
   startDate: string | null;
   endDate: string | null;
   exportAll: boolean;
+  includeTransactions: boolean;
   downloadInvoices: boolean;
   yearsToProcess: string[];
   currentYearIndex: number;
